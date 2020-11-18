@@ -7,46 +7,46 @@ const bufferstreams = require('bufferstreams');
 
 const pluginName = 'gulp-typed-css-modules';
 
-module.exports = options=>{
+module.exports = options => {
     options = options || {};
 
     const DtsCreator = options.tcm || require('typed-css-modules');
 
     const creator = new DtsCreator(options);
 
-    return through2.obj((file, encoding, callback)=>{
+    return through2.obj((file, encoding, callback) => {
         const filepath = file.path;
         const newpath = file.path + '.d.ts';
 
         file.path = newpath;
-        if (file.isNull()){
+        if (file.isNull()) {
             callback(null);
             return;
         }
-        if (file.isBuffer()){
+        if (file.isBuffer()) {
             runtcm(filepath, creator, file.contents.toString(encoding), options)
-            .then(content=>{
-                file.contents = content;
-                callback(null, file);
-            })
-            .catch(err=>{
-                callback(null);
-            });
+                .then(content => {
+                    file.contents = content;
+                    callback(null, file);
+                })
+                .catch(err => {
+                    callback(null);
+                });
             return;
         }
-        if (file.isStream()){
-            file.contents = file.contents.pipe(new bufferstreams((err, buf, callback)=>{
-                if (err){
+        if (file.isStream()) {
+            file.contents = file.contents.pipe(new bufferstreams((err, buf, callback) => {
+                if (err) {
                     throw err;
                 }
 
                 runtcm(filepath, creator, buf.toString(encoding), options)
-                .then(content=>{
-                    callback(null, content);
-                })
-                .catch(err=>{
-                    callback(err);
-                });
+                    .then(content => {
+                        callback(null, content);
+                    })
+                    .catch(err => {
+                        callback(err);
+                    });
             }));
 
             callback(null, file);
@@ -56,25 +56,40 @@ module.exports = options=>{
     });
 };
 
-function showWarning(file, err){
+function showWarning(file, err) {
     gutil.log(gutil.colors.cyan(pluginName), gutil.colors.yellow('Warning'), gutil.colors.gray(file), err);
 }
-function showError(file, err){
+function showError(file, err) {
     gutil.log(gutil.colors.cyan(pluginName), gutil.colors.red('Error'), gutil.colors.gray(file), err);
 }
 
-function runtcm(filepath, creator, content, options){
+function runtcm(filepath, creator, content, options) {
+    let pluginOptions = options.gulp || {};
+
+    pluginOptions = Object.assign({ addEnforcer: false, asNamespace: false }, pluginOptions);
+
     return creator.create(filepath, content)
-    .then(content=>{
-        if (!options.quiet){
-            for (let mes of content.messageList){
-                showWarning(filepath, mes);
+        .then(content => {
+            if (!options.quiet) {
+                for (let mes of content.messageList) {
+                    showWarning(filepath, mes);
+                }
             }
-        }
-        return Buffer.from(content.formatted);
-    })
-    .catch(err=>{
-        showError(filepath, err);
-        return Promise.reject(err);
-    });
+
+            if (pluginOptions.addEnforcer) {
+                content.resultList.push(((pluginOptions.asNamespace) ? '' : 'declare ') + 'const __undefined: boolean;');
+            }
+
+            if (pluginOptions.asNamespace) {
+                content.resultList.unshift('export namespace style {');
+                content.resultList.push('}');
+                content.resultList.push('export default style;');
+            }
+
+            return Buffer.from(content.formatted);
+        })
+        .catch(err => {
+            showError(filepath, err);
+            return Promise.reject(err);
+        });
 }
